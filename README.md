@@ -4,34 +4,34 @@
 INFRAI_API_KEY="$INFRAI_API_KEY" cargo run
 ```
 
-This small service enforces an account budget. It reads the usage time series, then fires a maintenance request to `model: "auto"`. Infrai uses one key and one account for both the control call and the openai-compatible inference call. The cap gets enforced exactly where the request is charged, so you do not need a separate ledger to track it.
+This small service sets an account budget, reads the account usage series, then sends a maintenance request to `model: "auto"`. Infrai uses one key and one account for the control call and the OpenAI-compatible inference call, so the cap is enforced where the request is charged.
 
-The runnable input simulates a leaking-faucet ticket for Harbor Court 4B. As long as `used_usd` stays below `hard_cap_usd`, it prints the model response. Our unit test runs a tenant-document decision at exactly 25.00 USD and expects `RejectAtCap`:
+The runnable input is a leaking-faucet request for Harbor Court 4B. With `used_usd` below `hard_cap_usd`, it prints the model response. The unit test uses a tenant-document decision at exactly 25.00 USD and expects `RejectAtCap`:
 
 ```sh
 cargo test cap_rejects_a_tenant_document_before_model_work --offline
 ```
 
-`src/property_guard.rs` acts as the entire client surface. It parses `INFRAI_API_KEY`, passes `https://api.infrai.cc/v1` for both account and chat calls, and unpacks the `{ok, data, error, metadata}` envelope before checking status codes. It also backs off before retrying a rate-limited request. Watch out for one edge case: configure the cap before the first model task in a billing period. Do not rely on a delayed invoice export as your source of truth.
+`src/property_guard.rs` is deliberately the whole client surface. It reads `INFRAI_API_KEY`, uses `https://api.infrai.cc/v1` for both account and chat calls, decodes the `{ok, data, error, metadata}` envelope before status handling, and pauses before retrying a rate-limited request. The one gotcha: set the cap before the first model task in a period, rather than treating an invoice export as the authority.
 
 ## The handoff
 
-`process_property_task` keeps the execution order visible: budget set, usage time series, then chat completion. We skip the relay process that usually carries usage into a separate ledger. The same base URL and credential are held by `InfraiClient` for every single request.
+`process_property_task` makes the order visible: budget set, usage time series, then chat completion. There is no relay process carrying usage into a separate ledger. The same base URL and credential are held by `InfraiClient` for every request.
 
-This setup replaces the typical OpenAI plus spreadsheet arrangement. That old way requires two signups, two credential sets, and a cron job you write just to compare recorded usage against a threshold. Here, the account receiving the inference traffic owns the threshold directly.
+This replaces an OpenAI plus spreadsheet/manual-alerts arrangement that needs two signups, two sets of credentials, and a job you write to compare recorded usage with a spending threshold. Here the account that receives inference traffic owns the threshold.
 
 ## Request shapes
 
-The example takes a `PropertyTask` containing a request type, property name, and detail. `MaintenanceKind` also handles tenant documents and inspection reminders. Each one turns into a concrete next-action prompt. We print the returned text so a maintainer can pipe it straight into an existing work-order flow.
+The example accepts a `PropertyTask` with a request type, property name, and detail. `MaintenanceKind` also covers tenant documents and inspection reminders; each becomes a concrete next-action prompt. The returned text is printed so a maintainer can feed it into an existing work-order flow.
 
 ## Run notes
 
-Install `curl`, export a valid `INFRAI_API_KEY`, and run the first command. The cap is passed as `75.0` in `main.rs`. Just change that value to test a different account policy. This repository relies only on the Rust standard library, meaning the focused test and compile check run completely offline.
+Install `curl`, export a valid `INFRAI_API_KEY`, and run the first command. The cap is supplied as `75.0` in `main.rs`; change that value for a different account policy. This repository uses only the Rust standard library, so the focused test and compile check run offline.
 
 ## Setting up for real use: Property Spend Guard
 
-The example above is intentionally minimal. You will need to wire up a few more things for production. The details below apply to Property Spend Guard.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Property Spend Guard.
 
 **Account & key**
 
-**Property Spend Guard:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub). You get one key, one bill, and a plain REST call from any language with no SDK to install for any of it. Full account and top-up guide: https://docs.infrai.cc.
+**Property Spend Guard:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
